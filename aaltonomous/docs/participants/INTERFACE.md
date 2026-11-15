@@ -49,11 +49,20 @@ env.close()
 | `arm_q_target` | (14,) or (k, 14) | float | **Absolute** joint position targets, rad |
 | `hand_q_target` | (14,) or (k, 14) | float | **Absolute** Dex3 joint targets, rad |
 | `done` | bool, optional | | Ends the episode after this action (after the last tick of a chunk) |
+| `arm_tau_ff` | (14,) or (k, 14), optional | float | Feed-forward torque per arm joint, Nm, same order and rows as `arm_q_target` (a (14,) row is repeated over a chunk). Absent = 0 |
 
-- Both keys are required in every action. A missing key, wrong shape or NaN/inf is rejected: that part holds its
-  last command and the tick **counts as a clipped step**.
+- `arm_q_target` and `hand_q_target` are required in every action. A missing key, wrong shape or NaN/inf is
+  rejected: that part holds its last command and the tick **counts as a clipped step**.
 - In a chunk, arm and hand must have the same k (or one of them is (14,) and is repeated).
-- No torque control. The legs and waist are not in the action space; they are held stiff at a fixed pose.
+- No torque control: the arms are position-controlled (PD to `arm_q_target`). `arm_tau_ff` is passed to the arm
+  motors as feed-forward torque on top of the PD (e.g. gravity compensation, as the teleop app that recorded the demos
+  sends). It is not checked by the safety filter; the runner only bounds it:
+  - clamped to ±15 Nm (shoulder pitch/roll/yaw, elbow) and ±2.5 Nm (wrist), never above the URDF effort limit;
+    NaN/inf → 0; a wrong shape → the last torque is held. Logged in `clip_reasons`, **not** counted as clipped steps;
+  - in a chunk it must have the same k as the targets (or be (14,)), otherwise the whole reply is rejected;
+  - runner holds repeat the last torque like the last target; safe stop, abort and episode end send 0;
+  - the Isaac sim and the mock ignore it (the sim applies only position targets): it acts on the real robot only.
+- The legs and waist are not in the action space; they are held stiff at a fixed pose.
 
 ### Timing: 30 Hz, chunks, holds
 
@@ -143,6 +152,7 @@ the forearm. Sim home pose (`aaltonomous/sim/aalto_task/layout.py` `ARM_HOME`): 
 | Counter keep-out | wrist + palm frames may not enter x 0.14–1.20, y −0.55–0.55, z < 0.03 m (pelvis frame; table + 2 cm) | yes (shortened) |
 | Watchdog | no action 0.2 s → hold; 1.0 s → safe stop (hold), episode ends. While your `act()` call is in flight (≤ 30 s) the runner re-sends the last target, so slow answers are held, not stopped | — |
 | Abort | more than 30 clipped steps → episode ends, points kept | — |
+| `arm_tau_ff` | not filtered here: clamped by the runner (§3) | no |
 
 - **Not covered:** self-collision (arm vs torso, arm vs arm) and fingertips vs table (only wrist and palm frames are
   checked). Avoid them yourself; on the real robot staff will stop the run.

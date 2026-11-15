@@ -51,6 +51,14 @@ class Slow(HoldPolicy):  # a VLM-style policy: 1.2 s per call, answers with a 10
         return {k: np.repeat(np.asarray(v)[None], 10, 0) for k, v in a.items()}
 
 
+class SlowTau(Slow):  # slow chunks with a feed-forward torque (one value beyond the clamp)
+    name = "slow_tau"
+    TAU = np.r_[[-8.5, -2.3, -0.1, -3.3, 0.0, -1.2, -0.2], [-8.5, 2.3, 0.1, -3.3, 0.0, -1.2, 40.0]]
+
+    def act(self, obs):
+        return {**super().act(obs), "arm_tau_ff": self.TAU}
+
+
 class Failing(Policy):  # every call raises -> error replies
     name = "failing"
 
@@ -178,11 +186,36 @@ class T(unittest.TestCase):
         self.assertGreater(s[0]["effective_hz"], 28)
         self.assertLess(s[0]["hold_ticks"], 0.2 * s[0]["ticks"])
 
+    def test_arm_tau_ff_kept_on_waits_dropped_at_end(self):
+        from aaltonomous.interface.env import AaltoEnv
+        env = AaltoEnv(backend="mock", time_limit=3.0, realtime=True)
+        s, _, log = self.go(SlowTau(), 8108, time_limit=3.0, env=env)
+        want = SlowTau.TAU.copy()
+        want[13] = 2.5                                         # wrist yaw clamp
+        tau, wait = log["arm_tau_cmd"], log["policy_wait"]
+        first = np.flatnonzero(np.abs(tau).sum(1) > 0)[0]     # before the first reply: runner holds with 0
+        self.assertTrue(np.all(tau[:first] == 0) and wait[:first].all())
+        np.testing.assert_array_equal(tau[first:], np.tile(want, (len(tau) - first, 1)))  # policy ticks AND waits
+        self.assertTrue(wait[first:].any())
+        self.assertEqual(s[0]["end_reason"], "time_limit")
+        self.assertEqual(s[0]["safety"]["clipped_steps"], 0)
+        np.testing.assert_array_equal(env.tau_cmd, np.zeros(14))  # released at the end of the episode
+        np.testing.assert_array_equal(env.backend.arm_tau, np.zeros(14))
+        env.close()
+
     def test_split_action(self):
         a = split_action({"arm_q_target": np.zeros((4, 14)), "hand_q_target": np.zeros(14), "done": True})
         self.assertEqual(len(a), 4)
         self.assertTrue(a[-1]["done"] and "done" not in a[0])
         self.assertEqual(len(split_action({"arm_q_target": np.zeros((3, 14)), "hand_q_target": np.zeros((2, 14))})), 1)
+        tau = np.arange(14.0)
+        a = split_action({"arm_q_target": np.zeros((4, 14)), "hand_q_target": np.zeros(14), "arm_tau_ff": tau})
+        self.assertTrue(len(a) == 4 and all(np.array_equal(t["arm_tau_ff"], tau) for t in a))  # (14,) repeated
+        a = split_action({"arm_q_target": np.zeros((4, 14)), "hand_q_target": np.zeros(14),
+                          "arm_tau_ff": np.outer(np.arange(4), tau)})
+        self.assertTrue(all(np.array_equal(t["arm_tau_ff"], i * tau) for i, t in enumerate(a)))   # row per tick
+        self.assertEqual(len(split_action({"arm_q_target": np.zeros((4, 14)), "hand_q_target": np.zeros(14),
+                                           "arm_tau_ff": np.zeros((3, 14))})), 1)               # rows mismatch
 
     def test_replay(self):
         start(HoldPolicy(), 8106)

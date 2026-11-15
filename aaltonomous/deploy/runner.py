@@ -181,7 +181,7 @@ def split_action(action):
     if not isinstance(action, dict):
         return [action]
     try:
-        keys = [k for k in ("arm_q_target", "hand_q_target") if action.get(k) is not None]
+        keys = [k for k in ("arm_q_target", "hand_q_target", "arm_tau_ff") if action.get(k) is not None]
         arrs = {k: np.asarray(action[k], float) for k in keys}
         ks = {a.shape[0] for a in arrs.values() if a.ndim == 2}
         if not ks or any(a.ndim not in (1, 2) for a in arrs.values()) or len(ks) != 1:
@@ -268,7 +268,9 @@ def run_episode(env, client, idx, seed, rec: Recorder, stop: threading.Event, ta
         if wait:
             # Request in flight: re-send the last command as an explicit target. The filter checks it like any
             # other target (zero step, inside limits), so the arms hold and the watchdog sees a live runner.
-            obs, info = env.step({"arm_q_target": env.filter.arm_cmd.copy(), "hand_q_target": env.filter.hand_cmd.copy()})
+            # The last feed-forward torque is kept too (same target, same load: without it the arms sag every wait).
+            obs, info = env.step({"arm_q_target": env.filter.arm_cmd.copy(), "hand_q_target": env.filter.hand_cmd.copy(),
+                                  "arm_tau_ff": env.tau_cmd.copy()})
             mode, clipped, reasons = info["safety_mode"], info["clipped"], info["clip_reasons"]
             end = info["end_reason"]
             waits += 1
@@ -288,8 +290,10 @@ def run_episode(env, client, idx, seed, rec: Recorder, stop: threading.Event, ta
         ticks += 1
         rec.add({"t": float(obs["t"]) if not hold else env._now(), "wall": time.monotonic() - wall0, "hold": hold,
                  "policy_wait": wait, "arm_q": obs["arm_q"], "arm_dq": obs["arm_dq"], "hand_q": obs["hand_q"],
-                 "arm_q_cmd": arm.copy(), "hand_q_cmd": hand.copy(), "clipped": bool(clipped),
+                 "arm_q_cmd": arm.copy(), "hand_q_cmd": hand.copy(), "arm_tau_cmd": env.tau_cmd.copy(),
+                 "clipped": bool(clipped),
                  "mode": ("ok", "stale", "safe_stop", "aborted").index(mode)}, obs)
+    env.release_tau()  # every end reason: feed-forward torque 0, the arms hold the last target
     if pending is not None and not pending.done():  # don't let a stale reply answer the next episode's reset
         concurrent.futures.wait([pending], timeout=max(0.0, min(5.0, max_latency - (time.monotonic() - t_req))))
         if not pending.done() and hasattr(client, "reconnect"):

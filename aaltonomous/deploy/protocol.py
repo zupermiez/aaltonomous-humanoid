@@ -7,7 +7,8 @@ Websocket (port 8000) + msgpack. numpy arrays travel as {"__nd__": 1, "dtype", "
   client -> server            : {"type": "reset", "task": str, "instruction": str, "seed": int}
   server -> client            : {"type": "reset_ok"}
   client -> server            : {"type": "act", "obs": {head_rgb, head_depth, ..., arm_q, hand_q, instruction, t}}
-  server -> client            : {"type": "action", "action": {arm_q_target (14,)|(k,14), hand_q_target, done?}}
+  server -> client            : {"type": "action", "action": {arm_q_target (14,)|(k,14), hand_q_target, done?,
+                                                           arm_tau_ff? (14,)|(k,14) Nm}}
   server -> client on failure : {"type": "error", "message": str}
 """
 from __future__ import annotations

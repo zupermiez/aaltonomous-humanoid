@@ -98,6 +98,7 @@ class JointSpec:
         self.locked_names = [j["name"] for j in spec["locked"]]
         self.arm_lower = np.array([j["lower"] for j in spec["arm"]])
         self.arm_upper = np.array([j["upper"] for j in spec["arm"]])
+        self.arm_effort = np.array([j["effort"] for j in spec["arm"]])
         self.hand_lower = np.array([j["lower"] for j in spec["hand"]])
         self.hand_upper = np.array([j["upper"] for j in spec["hand"]])
         assert len(self.arm_names) == N and len(self.hand_names) == N

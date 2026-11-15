@@ -42,6 +42,7 @@ class MockBackend:
         self.hand_q = np.zeros(N) if hand_q0 is None else np.asarray(hand_q0, float).copy()
         self.arm_dq = np.zeros(N)
         self.arm_cmd, self.hand_cmd = self.arm_q.copy(), self.hand_q.copy()
+        self.arm_tau = np.zeros(N)  # recorded only: the mock has no dynamics
         self.layout = None
 
     def reset_scene(self, layout, instruction):
@@ -50,8 +51,9 @@ class MockBackend:
     def joints(self):
         return self.arm_q.copy(), self.arm_dq.copy(), self.hand_q.copy()
 
-    def command(self, arm_q, hand_q):
+    def command(self, arm_q, hand_q, arm_tau=None):
         self.arm_cmd, self.hand_cmd = np.asarray(arm_q, float), np.asarray(hand_q, float)
+        self.arm_tau = np.zeros(N) if arm_tau is None else np.array(arm_tau, float)
 
     def advance(self, dt):
         """Called once per tick by the env (only meaningful for the mock)."""
@@ -291,8 +293,9 @@ class DDSBackend:
         return (np.asarray(self.arm.get_current_dual_arm_q(), float),
                 np.asarray(self.arm.get_current_dual_arm_dq(), float), self.hand_state.copy())
 
-    def command(self, arm_q, hand_q):
-        self.arm.ctrl_dual_arm(np.asarray(arm_q, float), np.zeros(N))
+    def command(self, arm_q, hand_q, arm_tau=None):
+        """arm_tau: feed-forward torque (Nm) next to the arm targets, already bounded by AaltoEnv; None = 0."""
+        self.arm.ctrl_dual_arm(np.asarray(arm_q, float), np.zeros(N) if arm_tau is None else np.array(arm_tau, float))
         with self._lock:
             self.hand_target = np.asarray(hand_q, float).copy()
 
