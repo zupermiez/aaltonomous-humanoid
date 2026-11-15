@@ -429,6 +429,9 @@ def main(argv=None):
     ap.add_argument("--head-rgbd", action=argparse.BooleanOptionalAction, default=True,
                     help="head RGB + depth from the RGB-D server (sim :55560 / PC2); off = teleimager RGB, depth 0")
     ap.add_argument("--head-rgbd-port", type=int, default=int(os.environ.get("AALTO_RGBD_PORT", "55560")))
+    ap.add_argument("--arm-gravity-ff", action="store_true",
+                    help="sim/real: send the arms' gravity torque at the commanded target as feed-forward tau, as "
+                    "the teleop app does (default off: tau 0, the arms sag under kp 80 + the 0.12 rad target clip)")
     ap.add_argument("--instruction", help="instruction text sent to the policy instead of the task's template "
                     "(e.g. an unseen wording on the real robot); scoring then has no mapping")
     a = ap.parse_args(argv)
@@ -442,7 +445,7 @@ def main(argv=None):
     if a.backend != "mock":
         ip = a.img_server_ip or ("127.0.0.1" if a.backend == "sim" else "192.168.123.164")
         kw = {"network_interface": a.network_interface, "img_server_ip": ip, "head_rgbd": a.head_rgbd,
-              "head_rgbd_port": a.head_rgbd_port}
+              "head_rgbd_port": a.head_rgbd_port, "arm_gravity_ff": a.arm_gravity_ff}
     if a.instruction:
         kw["instruction"] = a.instruction
     gpus = None if a.gpus.lower() == "none" else a.gpus

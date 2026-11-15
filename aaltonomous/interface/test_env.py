@@ -142,6 +142,28 @@ class TestDDSBackendSafety(unittest.TestCase):
         a.q_target = np.full(14, 0.5)
         np.testing.assert_allclose(a.q_target, 0.5)
 
+    def test_arm_gravity_ff(self):
+        import threading
+        from aaltonomous.interface.backends import ArmGravity, DDSBackend
+        g = ArmGravity()
+        reach = np.r_[Z[:7], -1.57, 0, 0, 1.57, 0, 0, 0]       # right arm straight forward, horizontal
+        tau = g(reach)
+        self.assertTrue(-9.0 < tau[7] < -8.0, tau[7])         # shoulder pitch holds the arm up (+pitch lowers it)
+        np.testing.assert_allclose(tau[:7], g(Z)[:7])         # left arm unchanged
+        self.assertTrue(np.all(np.abs(tau) <= g.lim))
+
+        class Arm:
+            def ctrl_dual_arm(self, q, tau): self.q, self.tau = q, tau
+
+        b = DDSBackend.__new__(DDSBackend)
+        b.arm, b._lock, b.gravity = Arm(), threading.Lock(), None
+        b.command(reach, Z)
+        np.testing.assert_array_equal(b.arm.tau, Z)           # default: tau 0, as before
+        b.gravity = g
+        b.command(reach, Z)
+        np.testing.assert_array_equal(b.arm.q, reach)
+        np.testing.assert_allclose(b.arm.tau, tau)
+
     def test_debug_mode_failure_refuses(self):
         from aaltonomous.interface.backends import enter_debug_mode
 
