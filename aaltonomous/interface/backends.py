@@ -21,10 +21,11 @@ from pathlib import Path
 
 import numpy as np
 
-from .safety import N
+from .safety import DEFAULT_URDF, N, JointSpec
 
 H, W = 480, 640
 XR = Path(__file__).resolve().parents[2] / "third_party/xr_teleoperate"
+TAU_FF_MAX = 15.0  # Nm, bound on the arm gravity feed-forward per joint (also capped at the URDF effort limit)
 
 
 def blank_images():
@@ -92,6 +93,31 @@ def make_safe_arm_controller(base):
             self._armed = True
 
     return SafeArm
+
+
+class ArmGravity:
+    """Gravity torque (Nm) of the 14 arm joints, in ctrl_dual_arm order, at a given arm pose: the feed-forward
+    xr_teleoperate sends with every target (G1_29_ArmIK.solve_ik: pin.rnea at the IK solution with zero velocity
+    and acceleration, on g1_body29_hand14.urdf, fixed base, legs + waist + hands locked at 0). Clamped per joint."""
+
+    def __init__(self, urdf=DEFAULT_URDF):
+        import pinocchio as pin
+        self.pin = pin
+        names = JointSpec().arm_names
+        full = pin.buildModelFromUrdf(str(urdf))  # fixed base at the pelvis
+        lock = [full.getJointId(n) for n in list(full.names)[1:] if n not in names]
+        self.model = pin.buildReducedModel(full, lock, np.zeros(full.nq))
+        self.data = self.model.createData()
+        self.idx = np.array([self.model.joints[self.model.getJointId(n)].idx_q for n in names])
+        assert self.model.nq == N and sorted(self.idx) == list(range(N))
+        self.zero = np.zeros(N)
+        self.lim = np.minimum(self.model.effortLimit[self.idx], TAU_FF_MAX)
+
+    def __call__(self, arm_q):
+        q = np.zeros(N)
+        q[self.idx] = arm_q
+        tau = self.pin.rnea(self.model, self.data, q, self.zero, self.zero)[self.idx]
+        return np.clip(tau, -self.lim, self.lim)
 
 
 def enter_debug_mode(switcher):
@@ -200,10 +226,15 @@ class DDSBackend:
 
     def __init__(self, sim, network_interface=None, img_server_ip="192.168.123.164", cameras=True,
                  hand_kp=1.5, hand_kd=0.2, hand_hz=100.0, confirm=None, head_rgbd=False, head_rgbd_port=55560,
-                 sim_clock=None, **_):
+                 sim_clock=None, arm_gravity_ff=False, **_):
         self.name = "sim" if sim else "real"
         if sim_clock is None:   # AALTO_SIM_CLOCK=0: old wall-time pacing (comparison / escape hatch)
             sim_clock = os.environ.get("AALTO_SIM_CLOCK", "1") != "0"
+        # arm tauff = gravity torque at the commanded target, as the teleop app sends (default: 0). Built before
+        # any DDS so a missing Pinocchio fails before the robot is touched.
+        self.gravity = ArmGravity() if arm_gravity_ff else None
+        if self.gravity is not None:
+            print(f"[DDSBackend] arm gravity feed-forward ON (|tau| <= {self.gravity.lim.max():.0f} Nm per joint)")
         self.confirm = confirm or (lambda card: input(f"\n{card}\nPlace the cubes, then press Enter... "))
         if str(XR) not in sys.path:
             sys.path.insert(0, str(XR))
@@ -292,7 +323,8 @@ class DDSBackend:
                 np.asarray(self.arm.get_current_dual_arm_dq(), float), self.hand_state.copy())
 
     def command(self, arm_q, hand_q):
-        self.arm.ctrl_dual_arm(np.asarray(arm_q, float), np.zeros(N))
+        arm_q = np.asarray(arm_q, float)
+        self.arm.ctrl_dual_arm(arm_q, np.zeros(N) if self.gravity is None else self.gravity(arm_q))
         with self._lock:
             self.hand_target = np.asarray(hand_q, float).copy()
 
