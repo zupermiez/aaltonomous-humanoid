@@ -429,9 +429,10 @@ def main(argv=None):
     ap.add_argument("--head-rgbd", action=argparse.BooleanOptionalAction, default=True,
                     help="head RGB + depth from the RGB-D server (sim :55560 / PC2); off = teleimager RGB, depth 0")
     ap.add_argument("--head-rgbd-port", type=int, default=int(os.environ.get("AALTO_RGBD_PORT", "55560")))
-    ap.add_argument("--arm-gravity-ff", action="store_true",
+    ap.add_argument("--arm-gravity-ff", action=argparse.BooleanOptionalAction, default=True,
                     help="sim/real: send the arms' gravity torque at the commanded target as feed-forward tau, as "
-                    "the teleop app does (default off: tau 0, the arms sag under kp 80 + the 0.12 rad target clip)")
+                    "the teleop app does (default on; --no-arm-gravity-ff: tau 0, the arms sag under kp 80 + the "
+                    "0.12 rad target clip)")
     ap.add_argument("--instruction", help="instruction text sent to the policy instead of the task's template "
                     "(e.g. an unseen wording on the real robot); scoring then has no mapping")
     a = ap.parse_args(argv)

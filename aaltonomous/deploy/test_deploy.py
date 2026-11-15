@@ -149,10 +149,10 @@ class T(unittest.TestCase):
             R.main(["--backend", "sim", "--team", "t"])
             self.assertTrue(got["args"][13]["head_rgbd"])
             self.assertEqual(got["args"][13]["img_server_ip"], "127.0.0.1")
-            self.assertFalse(got["args"][13]["arm_gravity_ff"])
-            R.main(["--backend", "real", "--team", "t", "--no-head-rgbd", "--task", "insert_shapes",
-                    "--arm-gravity-ff"])
             self.assertTrue(got["args"][13]["arm_gravity_ff"])
+            R.main(["--backend", "real", "--team", "t", "--no-head-rgbd", "--task", "insert_shapes",
+                    "--no-arm-gravity-ff"])
+            self.assertFalse(got["args"][13]["arm_gravity_ff"])
             self.assertFalse(got["args"][13]["head_rgbd"])
             self.assertEqual(got["args"][13]["img_server_ip"], "192.168.123.164")
         finally:
